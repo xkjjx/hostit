@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/route53"
@@ -11,6 +12,7 @@ import (
 )
 
 type AwsDnsProviderManager struct {
+	subdomainName string
 	route53Client *route53.Client
 }
 
@@ -46,8 +48,16 @@ func (awsDnsProviderManager AwsDnsProviderManager) AddSubdomainRecord() error {
 	return nil
 }
 
-func NewAwsDnsProviderManager() *AwsDnsProviderManager {
-	return &AwsDnsProviderManager{
-		route53Client: nil,
+func NewAwsDnsProviderManager(subdomainName string) (*AwsDnsProviderManager, error) {
+	if !strings.Contains(subdomainName, ".") {
+		return nil, errors.New("not a proper domain name")
 	}
+	subdomainName = subdomainName[:strings.LastIndex(subdomainName, ".")]
+	if !strings.Contains(subdomainName, ".") {
+		return nil, errors.New("not a proper domain name")
+	}
+	return &AwsDnsProviderManager{
+		subdomainName: subdomainName,
+		route53Client: nil,
+	}, nil
 }

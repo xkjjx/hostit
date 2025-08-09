@@ -23,8 +23,13 @@ func main() {
 		os.Exit(1)
 	}
 	var dnsProviderManager DnsProviderManager
+	var err error
 	if enteredDnsProvider == "A" {
-		dnsProviderManager = NewAwsDnsProviderManager()
+		dnsProviderManager, err = NewAwsDnsProviderManager(os.Args[1])
+		if err != nil {
+			fmt.Println("Error when initializing Route53 client")
+			os.Exit(1)
+		}
 	}
 	dnsProviderManager.VerifyCredentials()
 }
