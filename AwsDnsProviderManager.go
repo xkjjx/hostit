@@ -14,6 +14,7 @@ import (
 
 type AwsDnsProviderManager struct {
 	subdomainName     string
+	domainName        string
 	route53Client     *route53.Client
 	resourceRecordSet *types.ResourceRecordSet
 }
@@ -34,16 +35,12 @@ func (awsDnsProviderManager *AwsDnsProviderManager) InstantiateClient() error {
 }
 
 func (awsDnsProviderManager *AwsDnsProviderManager) VerifyDomainExists() (bool, error) {
-	s := awsDnsProviderManager.subdomainName
-	lastDot := strings.LastIndex(s, ".")
-	secondLastDot := strings.LastIndex(s[:lastDot], ".")
-	domainName := s[secondLastDot+1:]
 	if awsDnsProviderManager.route53Client == nil {
 		return false, errors.New("route53 client not initialized")
 	}
 	maxItemsInOutput := int32(100)
 	listHostedZonesByNameInput := route53.ListHostedZonesByNameInput{
-		DNSName:  &domainName,
+		DNSName:  &awsDnsProviderManager.domainName,
 		MaxItems: &maxItemsInOutput,
 	}
 	hostedZonesOutput, err := awsDnsProviderManager.route53Client.ListHostedZonesByName(context.Background(), &listHostedZonesByNameInput)
@@ -55,7 +52,7 @@ func (awsDnsProviderManager *AwsDnsProviderManager) VerifyDomainExists() (bool, 
 			continue
 		}
 		name := strings.TrimSuffix(*hz.Name, ".")
-		if strings.EqualFold(name, domainName) {
+		if strings.EqualFold(name, awsDnsProviderManager.domainName) {
 			return true, nil
 		}
 	}
@@ -70,21 +67,9 @@ func (awsDnsProviderManager *AwsDnsProviderManager) AddSubdomainRecord() error {
 		return errors.New("resource record set is nil")
 	}
 
-	// Derive the domain from the subdomain by taking everything after the second last dot
-	s := awsDnsProviderManager.subdomainName
-	lastDot := strings.LastIndex(s, ".")
-	if lastDot == -1 {
-		return errors.New("invalid subdomain name")
-	}
-	secondLastDot := strings.LastIndex(s[:lastDot], ".")
-	if secondLastDot == -1 {
-		return errors.New("invalid subdomain name")
-	}
-	domainName := s[secondLastDot+1:]
-
 	maxItemsInOutput := int32(100)
 	listHostedZonesByNameInput := route53.ListHostedZonesByNameInput{
-		DNSName:  &domainName,
+		DNSName:  &awsDnsProviderManager.domainName,
 		MaxItems: &maxItemsInOutput,
 	}
 	hostedZonesOutput, err := awsDnsProviderManager.route53Client.ListHostedZonesByName(context.Background(), &listHostedZonesByNameInput)
@@ -98,7 +83,7 @@ func (awsDnsProviderManager *AwsDnsProviderManager) AddSubdomainRecord() error {
 			continue
 		}
 		name := strings.TrimSuffix(*hz.Name, ".")
-		if strings.EqualFold(name, domainName) {
+		if strings.EqualFold(name, awsDnsProviderManager.domainName) {
 			hostedZoneId = *hz.Id
 			break
 		}
@@ -130,7 +115,7 @@ func (awsDnsProviderManager *AwsDnsProviderManager) AddSubdomainRecord() error {
 	return nil
 }
 
-func NewAwsDnsProviderManager(subdomainName string, resourceRecordSet *types.ResourceRecordSet) (*AwsDnsProviderManager, error) {
+func NewAwsDnsProviderManager(subdomainName string, domainName string, resourceRecordSet *types.ResourceRecordSet) (*AwsDnsProviderManager, error) {
 	if !strings.Contains(subdomainName, ".") {
 		return nil, errors.New("not a proper subdomain name")
 	}
@@ -139,6 +124,7 @@ func NewAwsDnsProviderManager(subdomainName string, resourceRecordSet *types.Res
 	}
 	return &AwsDnsProviderManager{
 		subdomainName:     subdomainName,
+		domainName:        domainName,
 		route53Client:     nil,
 		resourceRecordSet: resourceRecordSet,
 	}, nil

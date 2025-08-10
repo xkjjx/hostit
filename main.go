@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"strings"
 
 	"github.com/aws/aws-sdk-go-v2/service/route53/types"
 )
@@ -12,6 +13,37 @@ func main() {
 	if len(os.Args) != 3 {
 		log.Fatalf("Usage: hostit <file_name> <domain_name>")
 	}
+
+	fullDomainName, folderName := os.Args[1], os.Args[2]
+	temporaryDomainName := fullDomainName
+	var domainName string
+	if strings.LastIndex(fullDomainName, ".") == strings.Index(fullDomainName, ".") || strings.LastIndex(fullDomainName, ".") == -1 {
+		log.Fatalf("invalid domain name")
+	}
+	temporaryDomainName = temporaryDomainName[strings.Index(temporaryDomainName, ".")+1:]
+	if strings.Index(temporaryDomainName, ".") == strings.LastIndex(temporaryDomainName, ".") {
+		domainName = temporaryDomainName
+	} else {
+		log.Println("Multiple possible base domain names detected - please select which one you'd like to use")
+		var possibleDomainNames []string
+		for {
+			possibleDomainNames = append(possibleDomainNames, temporaryDomainName)
+			if strings.LastIndex(temporaryDomainName, ".") == strings.Index(temporaryDomainName, ".") {
+				break
+			}
+			temporaryDomainName = temporaryDomainName[strings.Index(temporaryDomainName, ".")+1:]
+		}
+		for index, value := range possibleDomainNames {
+			log.Printf("[%d]\t%s\n", index+1, value)
+		}
+		var numChosen int
+		_, err := fmt.Scanln(&numChosen)
+		if err != nil || numChosen > len(possibleDomainNames) {
+			log.Fatalf("invalid option chosen")
+		}
+		domainName = possibleDomainNames[numChosen-1]
+	}
+	log.Printf("Using base domain name %s\n", domainName)
 
 	log.Println("What DNS Provider do you want to use?")
 	log.Println("[A]\tAWS")
@@ -37,7 +69,7 @@ func main() {
 
 	var err error
 
-	githubObjectStorageProviderManager, err := NewGithubObjectStorageProviderManager(os.Args[1], os.Args[2])
+	githubObjectStorageProviderManager, err := NewGithubObjectStorageProviderManager(fullDomainName, folderName)
 	if err != nil {
 		log.Fatalf("Error: %s", err.Error())
 	}
@@ -50,7 +82,7 @@ func main() {
 		log.Fatalf("Error: %s", err.Error())
 	}
 	if !namespaceGood {
-		log.Fatalf("Repository with name %s already exists", os.Args[1])
+		log.Fatalf("Repository with name %s already exists", fullDomainName)
 	}
 	err = githubObjectStorageProviderManager.CreateStorageInstance()
 	if err != nil {
@@ -71,7 +103,7 @@ func main() {
 	}
 	var dnsProviderManager DnsProviderManager
 	if enteredDnsProvider == "A" {
-		dnsProviderManager, err = NewAwsDnsProviderManager(os.Args[1], resourceRecordSet)
+		dnsProviderManager, err = NewAwsDnsProviderManager(fullDomainName, domainName, resourceRecordSet)
 		if err != nil {
 			log.Fatalf("Error: %s", err.Error())
 		}
