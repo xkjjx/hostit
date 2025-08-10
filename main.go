@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"log"
 	"os"
 )
 
@@ -56,5 +57,27 @@ func main() {
 		os.Exit(1)
 	}
 	fmt.Println("Subdomain record added")
-	os.Exit(0)
+	githubObjectStorageProviderManager, err := NewGithubObjectStorageProviderManager(os.Args[1], os.Args[2])
+	if err != nil {
+		log.Fatalf("Error: %s", err.Error())
+	}
+	err = githubObjectStorageProviderManager.InstantiateClient()
+	if err != nil {
+		log.Fatalf("Error: %s", err.Error())
+	}
+	namespaceGood, err := githubObjectStorageProviderManager.VerifyNamespace()
+	if err != nil {
+		log.Fatalf("Error: %s", err.Error())
+	}
+	if !namespaceGood {
+		log.Fatalf("Repository with name %s already exists", os.Args[1])
+	}
+	err = githubObjectStorageProviderManager.CreateStorageInstance()
+	if err != nil {
+		log.Fatalf("Error: %s", err.Error())
+	}
+	err = githubObjectStorageProviderManager.UploadFiles()
+	if err != nil {
+		log.Fatalf("Error: %s", err.Error())
+	}
 }
