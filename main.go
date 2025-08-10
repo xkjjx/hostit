@@ -25,11 +25,36 @@ func main() {
 	var dnsProviderManager DnsProviderManager
 	var err error
 	if enteredDnsProvider == "A" {
-		dnsProviderManager, err = NewAwsDnsProviderManager(os.Args[1])
+		dnsProviderManager, err = NewAwsDnsProviderManager(os.Args[1], nil)
 		if err != nil {
-			fmt.Println("Error when initializing Route53 client")
+			fmt.Println("Error: " + err.Error())
 			os.Exit(1)
 		}
 	}
-	dnsProviderManager.VerifyCredentials()
+	isCredentialsValid, err := dnsProviderManager.VerifyCredentials()
+	if err != nil {
+		fmt.Println("Error: " + err.Error())
+		os.Exit(1)
+	}
+	if !isCredentialsValid {
+		fmt.Println("DNS provider credentials are not valid")
+		os.Exit(1)
+	}
+	isDomainAvailable, err := dnsProviderManager.VerifyDomainExists()
+	if err != nil {
+		fmt.Println("Error: " + err.Error())
+		os.Exit(1)
+	}
+	if !isDomainAvailable {
+		fmt.Println("Hosted zone for base domain not found")
+		os.Exit(1)
+	}
+	fmt.Println("Domain name properly configured in DNS provider")
+	err = dnsProviderManager.AddSubdomainRecord()
+	if err != nil {
+		fmt.Println("Error: " + err.Error())
+		os.Exit(1)
+	}
+	fmt.Println("Subdomain record added")
+	os.Exit(0)
 }

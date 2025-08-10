@@ -8,15 +8,17 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/route53"
+	"github.com/aws/aws-sdk-go-v2/service/route53/types"
 	"github.com/aws/aws-sdk-go-v2/service/sts"
 )
 
 type AwsDnsProviderManager struct {
 	subdomainName string
 	route53Client *route53.Client
+	resourceRecordSet *types.ResourceRecordSet
 }
 
-func (awsDnsProviderManager AwsDnsProviderManager) InstantiateClient() error {
+func (awsDnsProviderManager *AwsDnsProviderManager) InstantiateClient() error {
 	cfg, err := config.LoadDefaultConfig(context.Background())
 	if err != nil {
 		return errors.New("issue with getting credentials")
@@ -31,7 +33,7 @@ func (awsDnsProviderManager AwsDnsProviderManager) InstantiateClient() error {
 	return nil
 }
 
-func (awsDnsProviderManager AwsDnsProviderManager) VerifyCredentials() (bool, error) {
+func (awsDnsProviderManager *AwsDnsProviderManager) VerifyCredentials() (bool, error) {
 	err := awsDnsProviderManager.InstantiateClient()
 	if err != nil {
 		return false, nil
@@ -40,24 +42,49 @@ func (awsDnsProviderManager AwsDnsProviderManager) VerifyCredentials() (bool, er
 	}
 }
 
-func (awsDnsProviderManager AwsDnsProviderManager) VerifyDomainExists() (bool, error) {
-	return true, nil
+func (awsDnsProviderManager *AwsDnsProviderManager) VerifyDomainExists() (bool, error) {
+	s := awsDnsProviderManager.subdomainName
+	lastDot := strings.LastIndex(s, ".")
+	secondLastDot := strings.LastIndex(s[:lastDot], ".")
+	domainName := s[secondLastDot+1:]
+	if awsDnsProviderManager.route53Client == nil {
+		return false, errors.New("route53 client not initialized")
+	}
+	maxItemsInOutput := int32(100)
+	listHostedZonesByNameInput := route53.ListHostedZonesByNameInput{
+		DNSName: &domainName,
+		MaxItems: &maxItemsInOutput,
+	}
+	hostedZonesOutput, err := awsDnsProviderManager.route53Client.ListHostedZonesByName(context.Background(), &listHostedZonesByNameInput)
+	if err != nil {
+		return false, err
+	}
+	for _, hz := range hostedZonesOutput.HostedZones {
+		if hz.Name == nil {
+			continue
+		}
+		name := strings.TrimSuffix(*hz.Name, ".")
+		if strings.EqualFold(name, domainName) {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
-func (awsDnsProviderManager AwsDnsProviderManager) AddSubdomainRecord() error {
+func (awsDnsProviderManager *AwsDnsProviderManager) AddSubdomainRecord() error {
 	return nil
 }
 
-func NewAwsDnsProviderManager(subdomainName string) (*AwsDnsProviderManager, error) {
+func NewAwsDnsProviderManager(subdomainName string, resourceRecordSet *types.ResourceRecordSet) (*AwsDnsProviderManager, error) {
 	if !strings.Contains(subdomainName, ".") {
-		return nil, errors.New("not a proper domain name")
+		return nil, errors.New("not a proper subdomain name")
 	}
-	subdomainName = subdomainName[:strings.LastIndex(subdomainName, ".")]
-	if !strings.Contains(subdomainName, ".") {
-		return nil, errors.New("not a proper domain name")
+	if !strings.Contains(subdomainName[:strings.LastIndex(subdomainName, ".")], ".") {
+		return nil, errors.New("not a proper subdomain name")
 	}
 	return &AwsDnsProviderManager{
 		subdomainName: subdomainName,
 		route53Client: nil,
+		resourceRecordSet: resourceRecordSet,
 	}, nil
 }
