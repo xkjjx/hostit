@@ -72,6 +72,70 @@ func (awsDnsProviderManager *AwsDnsProviderManager) VerifyDomainExists() (bool, 
 }
 
 func (awsDnsProviderManager *AwsDnsProviderManager) AddSubdomainRecord() error {
+	if awsDnsProviderManager.route53Client == nil {
+		return errors.New("route53 client not initialized")
+	}
+	if awsDnsProviderManager.resourceRecordSet == nil {
+		return errors.New("resource record set is nil")
+	}
+
+	// Derive the domain from the subdomain by taking everything after the second last dot
+	s := awsDnsProviderManager.subdomainName
+	lastDot := strings.LastIndex(s, ".")
+	if lastDot == -1 {
+		return errors.New("invalid subdomain name")
+	}
+	secondLastDot := strings.LastIndex(s[:lastDot], ".")
+	if secondLastDot == -1 {
+		return errors.New("invalid subdomain name")
+	}
+	domainName := s[secondLastDot+1:]
+
+	maxItemsInOutput := int32(100)
+	listHostedZonesByNameInput := route53.ListHostedZonesByNameInput{
+		DNSName: &domainName,
+		MaxItems: &maxItemsInOutput,
+	}
+	hostedZonesOutput, err := awsDnsProviderManager.route53Client.ListHostedZonesByName(context.Background(), &listHostedZonesByNameInput)
+	if err != nil {
+		return err
+	}
+
+	var hostedZoneId string
+	for _, hz := range hostedZonesOutput.HostedZones {
+		if hz.Name == nil || hz.Id == nil {
+			continue
+		}
+		name := strings.TrimSuffix(*hz.Name, ".")
+		if strings.EqualFold(name, domainName) {
+			hostedZoneId = *hz.Id
+			break
+		}
+	}
+	if hostedZoneId == "" {
+		return errors.New("hosted zone for domain not found")
+	}
+
+	// Normalize hosted zone id (it may come prefixed with "/hostedzone/")
+	hostedZoneId = strings.TrimPrefix(hostedZoneId, "/hostedzone/")
+
+	changeInput := &route53.ChangeResourceRecordSetsInput{
+		HostedZoneId: &hostedZoneId,
+		ChangeBatch: &types.ChangeBatch{
+			Changes: []types.Change{
+				{
+					Action:            types.ChangeActionUpsert,
+					ResourceRecordSet: awsDnsProviderManager.resourceRecordSet,
+				},
+			},
+		},
+	}
+
+	_, err = awsDnsProviderManager.route53Client.ChangeResourceRecordSets(context.Background(), changeInput)
+	if err != nil {
+		return err
+	}
+
 	return nil
 }
 

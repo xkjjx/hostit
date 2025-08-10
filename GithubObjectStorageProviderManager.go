@@ -8,7 +8,10 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"strings"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/service/route53/types"
 	"github.com/google/go-github/v74/github"
 	"golang.org/x/oauth2"
 )
@@ -70,7 +73,7 @@ func (githubObjectStorageProviderManager GithubObjectStorageProviderManager) Cre
 	return err
 }
 
-func (githubObjectStorageProviderManager GithubObjectStorageProviderManager) UploadFiles() error {
+func (githubObjectStorageProviderManager GithubObjectStorageProviderManager) UploadFilesToNewInstance() error {
 	// 100 MB
 	const maxFileSizeBytes = 100 * 1024 * 1024
 	const branchName = "main"
@@ -96,6 +99,7 @@ func (githubObjectStorageProviderManager GithubObjectStorageProviderManager) Upl
 	// Collect files and create blobs
 	treeEntries := []*github.TreeEntry{}
 	var uploadErrs []error
+	hasCNAMEAtRoot := false
 
 	walkErr := filepath.WalkDir(githubObjectStorageProviderManager.folderName, func(path string, d os.DirEntry, walkErr error) error {
 		if walkErr != nil {
@@ -128,11 +132,22 @@ func (githubObjectStorageProviderManager GithubObjectStorageProviderManager) Upl
 			uploadErrs = append(uploadErrs, fmt.Errorf("failed to read file '%s': %w", path, err))
 			return nil
 		}
+		if repoPath == "CNAME" {
+			hasCNAMEAtRoot = true
+			current := strings.TrimSpace(string(data))
+			desired := strings.TrimSpace(githubObjectStorageProviderManager.repositoryName)
+			if current != desired {
+				log.Printf("updating CNAME content from to '%s'", desired)
+				data = []byte(desired)
+			}
+		}
 
 		encoded := base64.StdEncoding.EncodeToString(data)
+		content := encoded
+		encoding := "base64"
 		blob, _, err := client.Git.CreateBlob(ctx, githubObjectStorageProviderManager.repositoryOwner, githubObjectStorageProviderManager.repositoryName, &github.Blob{
-			Content:  github.String(encoded),
-			Encoding: github.String("base64"),
+			Content:  &content,
+			Encoding: &encoding,
 		})
 		if err != nil {
 			uploadErrs = append(uploadErrs, fmt.Errorf("failed to create blob for '%s': %w", repoPath, err))
@@ -158,6 +173,31 @@ func (githubObjectStorageProviderManager GithubObjectStorageProviderManager) Upl
 			log.Printf("upload error: %v", e)
 		}
 		return fmt.Errorf("completed with %d errors", len(uploadErrs))
+	}
+
+	// Ensure a CNAME file exists at the repository root so GitHub Pages sets the custom domain
+	if !hasCNAMEAtRoot {
+		cnameContent := []byte(githubObjectStorageProviderManager.repositoryName)
+		encoded := base64.StdEncoding.EncodeToString(cnameContent)
+		cnameBlobContent := encoded
+		cnameBlobEncoding := "base64"
+		blob, _, err := client.Git.CreateBlob(ctx, githubObjectStorageProviderManager.repositoryOwner, githubObjectStorageProviderManager.repositoryName, &github.Blob{
+			Content:  &cnameBlobContent,
+			Encoding: &cnameBlobEncoding,
+		})
+		if err != nil {
+			return fmt.Errorf("failed to create blob for CNAME: %w", err)
+		}
+		mode := "100644"
+		typeBlob := "blob"
+		cnamePath := "CNAME"
+		treeEntries = append(treeEntries, &github.TreeEntry{
+			Path: &cnamePath,
+			Mode: &mode,
+			Type: &typeBlob,
+			SHA:  blob.SHA,
+		})
+		log.Printf("staged '%s'", cnamePath)
 	}
 
 	// Determine base tree and parents (if branch exists)
@@ -198,7 +238,7 @@ func (githubObjectStorageProviderManager GithubObjectStorageProviderManager) Upl
 
 	commitMessage := "Github pages content"
 	commitInput := &github.Commit{
-		Message: github.String(commitMessage),
+		Message: &commitMessage,
 		Tree:    tree,
 		Parents: parents,
 	}
@@ -211,7 +251,8 @@ func (githubObjectStorageProviderManager GithubObjectStorageProviderManager) Upl
 	if ref != nil && ref.Ref != nil {
 		// Update existing ref
 		ref.Object.SHA = newCommit.SHA
-		ref.Ref = github.String("refs/heads/" + branchName)
+		refName := "refs/heads/" + branchName
+		ref.Ref = &refName
 		_, _, err = client.Git.UpdateRef(ctx, githubObjectStorageProviderManager.repositoryOwner, githubObjectStorageProviderManager.repositoryName, ref, false)
 		if err != nil {
 			return fmt.Errorf("failed to update ref for branch '%s': %w", branchName, err)
@@ -219,8 +260,9 @@ func (githubObjectStorageProviderManager GithubObjectStorageProviderManager) Upl
 		log.Printf("updated branch '%s' to commit %s", branchName, newCommit.GetSHA())
 	} else {
 		// Create new ref
+		newRefName := "refs/heads/" + branchName
 		newRef := &github.Reference{
-			Ref: github.String("refs/heads/" + branchName),
+			Ref: &newRefName,
 			Object: &github.GitObject{
 				SHA: newCommit.SHA,
 			},
@@ -233,6 +275,37 @@ func (githubObjectStorageProviderManager GithubObjectStorageProviderManager) Upl
 	}
 
 	return nil
+}
+
+func (githubObjectStorageProviderManager GithubObjectStorageProviderManager) CreateAvailableDomain() error {
+	branchName := "main"
+	path := "/"
+	pages := &github.Pages{
+		Source: &github.PagesSource{
+			Branch: &branchName,
+			Path:   &path,
+		},
+	}
+	_, _, err := githubObjectStorageProviderManager.githubClient.Repositories.EnablePages(
+		context.Background(), githubObjectStorageProviderManager.repositoryOwner, githubObjectStorageProviderManager.repositoryName, pages,
+	)
+	if err != nil {
+		return fmt.Errorf("failed to enable Pages: %w", err)
+	}
+	return nil
+}
+
+func (githubObjectStorageProviderManager GithubObjectStorageProviderManager) GetRequiredDnsRecord() (*types.ResourceRecordSet, error) {
+	return &types.ResourceRecordSet{
+		Name: aws.String(githubObjectStorageProviderManager.repositoryName + "."),
+		Type: types.RRTypeCname,
+		TTL:  aws.Int64(300),
+		ResourceRecords: []types.ResourceRecord{
+			{
+				Value: aws.String(githubObjectStorageProviderManager.repositoryOwner + ".github.io"),
+			},
+		},
+	}, nil
 }
 
 func NewGithubObjectStorageProviderManager(repositoryName string, folderName string) (*GithubObjectStorageProviderManager, error) {
