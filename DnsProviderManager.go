@@ -1,7 +1,7 @@
 package main
 
 type DnsProviderManager interface {
-	VerifyCredentials() (bool, error)
+	InstantiateClient() error
 	VerifyDomainExists() (bool, error)
 	AddSubdomainRecord() error
 }

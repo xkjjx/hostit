@@ -10,32 +10,29 @@ import (
 
 func main() {
 	if len(os.Args) != 3 {
-		fmt.Println("Usage: hostit <file_name> <domain_name>")
-		os.Exit(1)
+		log.Fatalf("Usage: hostit <file_name> <domain_name>")
 	}
 
-	fmt.Println("What DNS Provider do you want to use?")
-	fmt.Println("[A]\tAWS")
+	log.Println("What DNS Provider do you want to use?")
+	log.Println("[A]\tAWS")
 
 	supportedDnsProviders := NewSet[string]()
 	supportedDnsProviders.Add("A")
 	var enteredDnsProvider string
 	fmt.Scanln(&enteredDnsProvider)
 	if !supportedDnsProviders.Contains(enteredDnsProvider) {
-		fmt.Println("DNS provider not supported")
-		os.Exit(1)
+		log.Fatalf("DNS provider not supported")
 	}
 
-	fmt.Println("What object storage platform do you want to use?")
-	fmt.Println("[G]\tGithub")
+	log.Println("What object storage platform do you want to use?")
+	log.Println("[G]\tGithub")
 
 	supportedObjectStorageProviders := NewSet[string]()
 	supportedObjectStorageProviders.Add("G")
 	var enteredObjectStorageProvider string
 	fmt.Scanln(&enteredObjectStorageProvider)
 	if !supportedObjectStorageProviders.Contains(enteredObjectStorageProvider) {
-		fmt.Println("DNS provider not supported")
-		os.Exit(1)
+		log.Fatalf("Object storage provider not supported")
 	}
 
 	var err error
@@ -76,33 +73,24 @@ func main() {
 	if enteredDnsProvider == "A" {
 		dnsProviderManager, err = NewAwsDnsProviderManager(os.Args[1], resourceRecordSet)
 		if err != nil {
-			fmt.Println("Error: " + err.Error())
-			os.Exit(1)
+			log.Fatalf("Error: %s", err.Error())
 		}
 	}
-	isCredentialsValid, err := dnsProviderManager.VerifyCredentials()
+	err = dnsProviderManager.InstantiateClient()
 	if err != nil {
-		fmt.Println("Error: " + err.Error())
-		os.Exit(1)
-	}
-	if !isCredentialsValid {
-		fmt.Println("DNS provider credentials are not valid")
-		os.Exit(1)
+		log.Fatalf("Error: %s", err.Error())
 	}
 	isDomainAvailable, err := dnsProviderManager.VerifyDomainExists()
 	if err != nil {
-		fmt.Println("Error: " + err.Error())
-		os.Exit(1)
+		log.Fatalf("Error: %s", err.Error())
 	}
 	if !isDomainAvailable {
-		fmt.Println("Hosted zone for base domain not found")
-		os.Exit(1)
+		log.Fatalf("Hosted zone for base domain not found")
 	}
-	fmt.Println("Domain name properly configured in DNS provider")
+	log.Println("Domain name properly configured in DNS provider")
 	err = dnsProviderManager.AddSubdomainRecord()
 	if err != nil {
-		fmt.Println("Error: " + err.Error())
-		os.Exit(1)
+		log.Fatalf("Error: %s", err.Error())
 	}
-	fmt.Println("Subdomain record added")
+	log.Println("Subdomain record added")
 }

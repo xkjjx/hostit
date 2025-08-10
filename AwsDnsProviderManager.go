@@ -3,7 +3,7 @@ package main
 import (
 	"context"
 	"errors"
-	"fmt"
+	"log"
 	"strings"
 
 	"github.com/aws/aws-sdk-go-v2/config"
@@ -13,8 +13,8 @@ import (
 )
 
 type AwsDnsProviderManager struct {
-	subdomainName string
-	route53Client *route53.Client
+	subdomainName     string
+	route53Client     *route53.Client
 	resourceRecordSet *types.ResourceRecordSet
 }
 
@@ -28,18 +28,9 @@ func (awsDnsProviderManager *AwsDnsProviderManager) InstantiateClient() error {
 	if err != nil {
 		return errors.New("issue with user information")
 	}
-	fmt.Printf("Using AWS Account %s\n", *result.Account)
+	log.Printf("Using AWS Account %s for DNS provider", *result.Account)
 	awsDnsProviderManager.route53Client = route53.NewFromConfig(cfg)
 	return nil
-}
-
-func (awsDnsProviderManager *AwsDnsProviderManager) VerifyCredentials() (bool, error) {
-	err := awsDnsProviderManager.InstantiateClient()
-	if err != nil {
-		return false, nil
-	} else {
-		return true, nil
-	}
 }
 
 func (awsDnsProviderManager *AwsDnsProviderManager) VerifyDomainExists() (bool, error) {
@@ -52,7 +43,7 @@ func (awsDnsProviderManager *AwsDnsProviderManager) VerifyDomainExists() (bool, 
 	}
 	maxItemsInOutput := int32(100)
 	listHostedZonesByNameInput := route53.ListHostedZonesByNameInput{
-		DNSName: &domainName,
+		DNSName:  &domainName,
 		MaxItems: &maxItemsInOutput,
 	}
 	hostedZonesOutput, err := awsDnsProviderManager.route53Client.ListHostedZonesByName(context.Background(), &listHostedZonesByNameInput)
@@ -93,7 +84,7 @@ func (awsDnsProviderManager *AwsDnsProviderManager) AddSubdomainRecord() error {
 
 	maxItemsInOutput := int32(100)
 	listHostedZonesByNameInput := route53.ListHostedZonesByNameInput{
-		DNSName: &domainName,
+		DNSName:  &domainName,
 		MaxItems: &maxItemsInOutput,
 	}
 	hostedZonesOutput, err := awsDnsProviderManager.route53Client.ListHostedZonesByName(context.Background(), &listHostedZonesByNameInput)
@@ -147,8 +138,8 @@ func NewAwsDnsProviderManager(subdomainName string, resourceRecordSet *types.Res
 		return nil, errors.New("not a proper subdomain name")
 	}
 	return &AwsDnsProviderManager{
-		subdomainName: subdomainName,
-		route53Client: nil,
+		subdomainName:     subdomainName,
+		route53Client:     nil,
 		resourceRecordSet: resourceRecordSet,
 	}, nil
 }
