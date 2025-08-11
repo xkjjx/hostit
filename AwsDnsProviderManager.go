@@ -3,7 +3,7 @@ package main
 import (
 	"context"
 	"errors"
-	"log"
+	"fmt"
 	"strings"
 
 	"github.com/aws/aws-sdk-go-v2/config"
@@ -29,7 +29,7 @@ func (awsDnsProviderManager *AwsDnsProviderManager) InstantiateClient() error {
 	if err != nil {
 		return errors.New("issue with user information")
 	}
-	log.Printf("Using AWS Account %s for DNS provider", *result.Account)
+	fmt.Printf("Using AWS Account %s for DNS provider", *result.Account)
 	awsDnsProviderManager.route53Client = route53.NewFromConfig(cfg)
 	return nil
 }

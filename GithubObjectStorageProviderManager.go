@@ -26,7 +26,7 @@ type GithubObjectStorageProviderManager struct {
 func (githubObjectStorageProviderManager *GithubObjectStorageProviderManager) InstantiateClient() error {
 	token := os.Getenv("GITHUB_TOKEN")
 	if token == "" {
-		log.Fatal("GITHUB_TOKEN environment variable is required")
+		return errors.New("GITHUB_TOKEN not set")
 	}
 	ts := oauth2.StaticTokenSource(
 		&oauth2.Token{AccessToken: token},
@@ -60,7 +60,7 @@ func (githubObjectStorageProviderManager GithubObjectStorageProviderManager) Ver
 func (githubObjectStorageProviderManager GithubObjectStorageProviderManager) CreateStorageInstance() error {
 	repoIsPrivate := false
 	autoInit := true
-	repoDescription := fmt.Sprintf("Github pages for https://%s", githubObjectStorageProviderManager.repositoryName)
+	repoDescription := "Hosted through hostit"
 	repo := &github.Repository{
 		Name:        &githubObjectStorageProviderManager.repositoryName,
 		Description: &repoDescription,
@@ -118,7 +118,7 @@ func (githubObjectStorageProviderManager GithubObjectStorageProviderManager) Upl
 			return nil
 		}
 		if fileInfo.Size() > maxFileSizeBytes {
-			log.Printf("skipping '%s' (size %d bytes exceeds GitHub limit)", path, fileInfo.Size())
+			fmt.Printf("skipping '%s' (size %d bytes exceeds GitHub limit)", path, fileInfo.Size())
 			return nil
 		}
 		relPath, err := filepath.Rel(githubObjectStorageProviderManager.folderName, path)
@@ -137,7 +137,7 @@ func (githubObjectStorageProviderManager GithubObjectStorageProviderManager) Upl
 			current := strings.TrimSpace(string(data))
 			desired := strings.TrimSpace(githubObjectStorageProviderManager.repositoryName)
 			if current != desired {
-				log.Printf("updating CNAME content from to '%s'", desired)
+				fmt.Printf("updating CNAME content from to '%s'", desired)
 				data = []byte(desired)
 			}
 		}
@@ -162,7 +162,7 @@ func (githubObjectStorageProviderManager GithubObjectStorageProviderManager) Upl
 			Type: &typeBlob,
 			SHA:  blob.SHA,
 		})
-		log.Printf("staged '%s'", repoPath)
+		log.Printf("Found '%s'", repoPath)
 		return nil
 	})
 	if walkErr != nil {
@@ -197,7 +197,6 @@ func (githubObjectStorageProviderManager GithubObjectStorageProviderManager) Upl
 			Type: &typeBlob,
 			SHA:  blob.SHA,
 		})
-		log.Printf("staged '%s'", cnamePath)
 	}
 
 	// Determine base tree and parents (if branch exists)
@@ -209,10 +208,7 @@ func (githubObjectStorageProviderManager GithubObjectStorageProviderManager) Upl
 		if resp == nil || resp.StatusCode != 404 {
 			return fmt.Errorf("failed to get ref for branch '%s': %w", branchName, err)
 		}
-		// Branch does not exist; initial commit path
-		log.Printf("branch '%s' does not exist; creating initial commit", branchName)
 	} else {
-		// Existing branch; fetch its commit to use as parent and base tree
 		parentCommitSHA := ""
 		if ref.Object != nil && ref.Object.SHA != nil {
 			parentCommitSHA = *ref.Object.SHA
@@ -230,7 +226,6 @@ func (githubObjectStorageProviderManager GithubObjectStorageProviderManager) Upl
 		parents = []*github.Commit{parentCommit}
 	}
 
-	// Create tree with all entries
 	tree, _, err := client.Git.CreateTree(ctx, githubObjectStorageProviderManager.repositoryOwner, githubObjectStorageProviderManager.repositoryName, baseTreeSHA, treeEntries)
 	if err != nil {
 		return fmt.Errorf("failed to create tree: %w", err)
@@ -257,7 +252,6 @@ func (githubObjectStorageProviderManager GithubObjectStorageProviderManager) Upl
 		if err != nil {
 			return fmt.Errorf("failed to update ref for branch '%s': %w", branchName, err)
 		}
-		log.Printf("updated branch '%s' to commit %s", branchName, newCommit.GetSHA())
 	} else {
 		// Create new ref
 		newRefName := "refs/heads/" + branchName
@@ -271,9 +265,7 @@ func (githubObjectStorageProviderManager GithubObjectStorageProviderManager) Upl
 		if err != nil {
 			return fmt.Errorf("failed to create ref for branch '%s': %w", branchName, err)
 		}
-		log.Printf("created branch '%s' at commit %s", branchName, newCommit.GetSHA())
 	}
-
 	return nil
 }
 
