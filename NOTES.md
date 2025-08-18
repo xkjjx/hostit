@@ -6,3 +6,7 @@ if storage already exists
 else
 - create connections from scratch
 - make upload of all new data
+
+
+maybe separate functionality of setting up cloudfront in object storage manager even if it means that
+github implementation doesn't need it

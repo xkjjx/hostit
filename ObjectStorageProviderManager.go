@@ -8,5 +8,6 @@ type ObjectStorageProviderManager interface {
 	CreateStorageInstance() error
 	UploadFilesToNewInstance() error
 	CreateAvailableDomain() error
-	GetRequiredDnsRecord() (*types.ResourceRecordSet, error)
+	GetRequiredDnsRecords() ([]*types.ResourceRecordSet, error)
+	FinalizeHttps() error
 }

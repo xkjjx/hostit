@@ -101,36 +101,17 @@ func (githubObjectStorageProviderManager GithubObjectStorageProviderManager) Upl
 	var uploadErrs []error
 	hasCNAMEAtRoot := false
 
-	walkErr := filepath.WalkDir(githubObjectStorageProviderManager.folderName, func(path string, d os.DirEntry, walkErr error) error {
-		if walkErr != nil {
-			uploadErrs = append(uploadErrs, fmt.Errorf("error walking to '%s': %w", path, walkErr))
-			return nil // continue walking
-		}
-		if d.IsDir() {
-			return nil
-		}
-		fileInfo, err := d.Info()
+	finder := NewUploadFileFinder()
+	filesToUpload, err := finder.FindFiles(githubObjectStorageProviderManager.folderName, maxFileSizeBytes)
+	if err != nil {
+		return err
+	}
+	for _, repoPath := range filesToUpload {
+		fullPath := filepath.Join(githubObjectStorageProviderManager.folderName, filepath.FromSlash(repoPath))
+		data, err := os.ReadFile(fullPath)
 		if err != nil {
-			uploadErrs = append(uploadErrs, fmt.Errorf("failed to get file info for '%s': %w", path, err))
-			return nil
-		}
-		if !fileInfo.Mode().IsRegular() {
-			return nil
-		}
-		if fileInfo.Size() > maxFileSizeBytes {
-			fmt.Printf("skipping '%s' (size %d bytes exceeds GitHub limit)", path, fileInfo.Size())
-			return nil
-		}
-		relPath, err := filepath.Rel(githubObjectStorageProviderManager.folderName, path)
-		if err != nil {
-			uploadErrs = append(uploadErrs, fmt.Errorf("failed to compute relative path for '%s': %w", path, err))
-			return nil
-		}
-		repoPath := filepath.ToSlash(relPath)
-		data, err := os.ReadFile(path)
-		if err != nil {
-			uploadErrs = append(uploadErrs, fmt.Errorf("failed to read file '%s': %w", path, err))
-			return nil
+			uploadErrs = append(uploadErrs, fmt.Errorf("failed to read file '%s': %w", fullPath, err))
+			continue
 		}
 		if repoPath == "CNAME" {
 			hasCNAMEAtRoot = true
@@ -151,7 +132,7 @@ func (githubObjectStorageProviderManager GithubObjectStorageProviderManager) Upl
 		})
 		if err != nil {
 			uploadErrs = append(uploadErrs, fmt.Errorf("failed to create blob for '%s': %w", repoPath, err))
-			return nil
+			continue
 		}
 
 		mode := "100644"
@@ -163,10 +144,6 @@ func (githubObjectStorageProviderManager GithubObjectStorageProviderManager) Upl
 			SHA:  blob.SHA,
 		})
 		log.Printf("Found '%s'", repoPath)
-		return nil
-	})
-	if walkErr != nil {
-		return walkErr
 	}
 	if len(uploadErrs) > 0 {
 		for _, e := range uploadErrs {
@@ -287,17 +264,23 @@ func (githubObjectStorageProviderManager GithubObjectStorageProviderManager) Cre
 	return nil
 }
 
-func (githubObjectStorageProviderManager GithubObjectStorageProviderManager) GetRequiredDnsRecord() (*types.ResourceRecordSet, error) {
-	return &types.ResourceRecordSet{
-		Name: aws.String(githubObjectStorageProviderManager.repositoryName + "."),
-		Type: types.RRTypeCname,
-		TTL:  aws.Int64(300),
-		ResourceRecords: []types.ResourceRecord{
-			{
-				Value: aws.String(githubObjectStorageProviderManager.repositoryOwner + ".github.io"),
+func (githubObjectStorageProviderManager GithubObjectStorageProviderManager) GetRequiredDnsRecords() ([]*types.ResourceRecordSet, error) {
+	return []*types.ResourceRecordSet{
+		{
+			Name: aws.String(githubObjectStorageProviderManager.repositoryName + "."),
+			Type: types.RRTypeCname,
+			TTL:  aws.Int64(300),
+			ResourceRecords: []types.ResourceRecord{
+				{
+					Value: aws.String(githubObjectStorageProviderManager.repositoryOwner + ".github.io"),
+				},
 			},
 		},
 	}, nil
+}
+
+func (githubObjectStorageProviderManager GithubObjectStorageProviderManager) FinalizeHttps() error {
+	return nil
 }
 
 func NewGithubObjectStorageProviderManager(repositoryName string, folderName string) (*GithubObjectStorageProviderManager, error) {

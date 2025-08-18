@@ -13,10 +13,10 @@ import (
 )
 
 type AwsDnsProviderManager struct {
-	subdomainName     string
-	domainName        string
-	route53Client     *route53.Client
-	resourceRecordSet *types.ResourceRecordSet
+	subdomainName      string
+	domainName         string
+	route53Client      *route53.Client
+	resourceRecordSets []*types.ResourceRecordSet
 }
 
 func (awsDnsProviderManager *AwsDnsProviderManager) InstantiateClient() error {
@@ -29,7 +29,7 @@ func (awsDnsProviderManager *AwsDnsProviderManager) InstantiateClient() error {
 	if err != nil {
 		return errors.New("issue with user information")
 	}
-	fmt.Printf("Using AWS Account %s for DNS provider", *result.Account)
+	fmt.Printf("Using AWS Account %s for DNS provider\n", *result.Account)
 	awsDnsProviderManager.route53Client = route53.NewFromConfig(cfg)
 	return nil
 }
@@ -59,12 +59,12 @@ func (awsDnsProviderManager *AwsDnsProviderManager) VerifyDomainExists() (bool, 
 	return false, nil
 }
 
-func (awsDnsProviderManager *AwsDnsProviderManager) AddSubdomainRecord() error {
+func (awsDnsProviderManager *AwsDnsProviderManager) AddSubdomainRecords() error {
 	if awsDnsProviderManager.route53Client == nil {
 		return errors.New("route53 client not initialized")
 	}
-	if awsDnsProviderManager.resourceRecordSet == nil {
-		return errors.New("resource record set is nil")
+	if len(awsDnsProviderManager.resourceRecordSets) == 0 {
+		return errors.New("no resource record sets provided")
 	}
 
 	maxItemsInOutput := int32(100)
@@ -95,15 +95,24 @@ func (awsDnsProviderManager *AwsDnsProviderManager) AddSubdomainRecord() error {
 	// Normalize hosted zone id (it may come prefixed with "/hostedzone/")
 	hostedZoneId = strings.TrimPrefix(hostedZoneId, "/hostedzone/")
 
+	changes := make([]types.Change, 0, len(awsDnsProviderManager.resourceRecordSets))
+	for _, rrset := range awsDnsProviderManager.resourceRecordSets {
+		if rrset == nil {
+			continue
+		}
+		changes = append(changes, types.Change{
+			Action:            types.ChangeActionUpsert,
+			ResourceRecordSet: rrset,
+		})
+	}
+	if len(changes) == 0 {
+		return errors.New("no valid resource record sets to apply")
+	}
+
 	changeInput := &route53.ChangeResourceRecordSetsInput{
 		HostedZoneId: &hostedZoneId,
 		ChangeBatch: &types.ChangeBatch{
-			Changes: []types.Change{
-				{
-					Action:            types.ChangeActionUpsert,
-					ResourceRecordSet: awsDnsProviderManager.resourceRecordSet,
-				},
-			},
+			Changes: changes,
 		},
 	}
 
@@ -115,7 +124,7 @@ func (awsDnsProviderManager *AwsDnsProviderManager) AddSubdomainRecord() error {
 	return nil
 }
 
-func NewAwsDnsProviderManager(subdomainName string, domainName string, resourceRecordSet *types.ResourceRecordSet) (*AwsDnsProviderManager, error) {
+func NewAwsDnsProviderManager(subdomainName string, domainName string, resourceRecordSets []*types.ResourceRecordSet) (*AwsDnsProviderManager, error) {
 	if !strings.Contains(subdomainName, ".") {
 		return nil, errors.New("not a proper subdomain name")
 	}
@@ -123,9 +132,9 @@ func NewAwsDnsProviderManager(subdomainName string, domainName string, resourceR
 		return nil, errors.New("not a proper subdomain name")
 	}
 	return &AwsDnsProviderManager{
-		subdomainName:     subdomainName,
-		domainName:        domainName,
-		route53Client:     nil,
-		resourceRecordSet: resourceRecordSet,
+		subdomainName:      subdomainName,
+		domainName:         domainName,
+		route53Client:      nil,
+		resourceRecordSets: resourceRecordSets,
 	}, nil
 }
